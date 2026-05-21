@@ -81,8 +81,10 @@
 
             directionsService = new google.maps.DirectionsService();
             directionsRenderer = new google.maps.DirectionsRenderer({ 
-                map: map, polylineOptions: { strokeColor: '#2563eb', strokeWeight: 6 }
-            });
+  		  map: map, 
+		    suppressMarkers: true,
+   		 polylineOptions: { strokeColor: '#2563eb', strokeWeight: 6 }
+		});
 
             // Pintar la ruta exacta optimizada si existen coordenadas
             if (stopsRaw) {
