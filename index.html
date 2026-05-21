@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Simacero Logistics OS | v28.0 Enterprise</title>
+    <title>Simacero Logistics OS | v29.0 Enterprise</title>
     
     <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
@@ -31,6 +31,7 @@
         .collapsible-container.expanded { height: auto; padding-bottom: 15px; }
         .collapsible-body { opacity: 0; pointer-events: none; transition: 0.3s; padding-top: 10px; }
         .collapsible-container.expanded .collapsible-body { opacity: 1; pointer-events: auto; }
+        input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
     </style>
 </head>
 <body class="flex h-screen w-screen">
@@ -64,10 +65,7 @@
             <div>
                 <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-2 mb-3">Unidades Activas</h3>
                 <div id="units-container" class="space-y-2">
-                    <div class="unit-card p-4 rounded-2xl active" onclick="selectUnit(this, 'CAMIÓN 5 TON')">🚚 Camión 5 Toneladas</div>
-                    <div class="unit-card p-4 rounded-2xl" onclick="selectUnit(this, 'CAMIONETA 01')">🛻 Camioneta Reparto 01</div>
-                    <div class="unit-card p-4 rounded-2xl" onclick="selectUnit(this, 'CAMIONETA 02')">🛻 Camioneta Reparto 02</div>
-                </div>
+                    </div>
             </div>
             
             <div id="chat-widget" class="collapsible-container expanded flex flex-col bg-black/40 rounded-2xl border border-white/5 h-[320px]">
@@ -138,8 +136,52 @@
                     </button>
                 </div>
             </div>
-            <div id="content-historial" class="tab-content text-center pt-10">Historial Activo</div>
-            <div id="content-rendimiento" class="tab-content text-center pt-10">94% Eficiencia</div>
+
+            <div id="content-historial" class="tab-content space-y-4">
+                <div class="bg-white/5 p-4 rounded-2xl border border-white/10">
+                    <label class="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-2">Filtrar Rutas Guardadas</label>
+                    <div class="flex gap-2">
+                        <input type="date" id="history-date-picker" class="flex-1 bg-slate-800 text-sm rounded-xl px-4 py-2 outline-none border border-white/10 text-white">
+                        <button onclick="filterHistoryByDate()" class="bg-yellow-400 text-black font-bold text-xs px-4 rounded-xl uppercase">Buscar</button>
+                    </div>
+                </div>
+                <div id="history-list-container" class="space-y-2 max-h-[400px] overflow-y-auto text-xs text-slate-400 italic text-center pt-4">
+                    Selecciona una fecha para auditar trayectos.
+                </div>
+            </div>
+
+            <div id="content-rendimiento" class="tab-content space-y-4">
+                <h3 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">Indicadores Clave del Mes (KPIs)</h3>
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="bg-white/5 border border-white/5 p-4 rounded-2xl text-center">
+                        <i class="ri-road-map-line text-yellow-400 text-lg block mb-1"></i>
+                        <span class="text-[9px] text-slate-400 uppercase block font-medium">Distancia Total</span>
+                        <p id="kpi-km" class="text-lg font-black text-white mt-1">1,240 km</p>
+                    </div>
+                    <div class="bg-white/5 border border-white/5 p-4 rounded-2xl text-center">
+                        <i class="ri-time-line text-blue-400 text-lg block mb-1"></i>
+                        <span class="text-[9px] text-slate-400 uppercase block font-medium">Tiempo en Ruta</span>
+                        <p id="kpi-time" class="text-lg font-black text-white mt-1">42.5 hrs</p>
+                    </div>
+                    <div class="bg-white/5 border border-white/5 p-4 rounded-2xl text-center">
+                        <i class="ri-camera-check-line text-green-400 text-lg block mb-1"></i>
+                        <span class="text-[9px] text-slate-400 uppercase block font-medium">Evidencias OK</span>
+                        <p id="kpi-evidences" class="text-lg font-black text-white mt-1">98.2%</p>
+                    </div>
+                    <div class="bg-white/5 border border-white/5 p-4 rounded-2xl text-center">
+                        <i class="ri-gas-station-fill text-red-400 text-lg block mb-1"></i>
+                        <span class="text-[9px] text-slate-400 uppercase block font-medium">Combustible Est.</span>
+                        <p id="kpi-gas" class="text-lg font-black text-white mt-1">210 Lts</p>
+                    </div>
+                </div>
+                <div class="p-4 bg-white/5 border border-white/10 rounded-2xl text-center">
+                    <span class="text-[9px] text-slate-400 uppercase block font-bold tracking-wider mb-1">Eficiencia Logística Global</span>
+                    <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden mt-2">
+                        <div class="bg-green-500 h-full w-[94%]"></div>
+                    </div>
+                    <span class="text-xs font-black text-green-400 block mt-2">94% de efectividad de entrega</span>
+                </div>
+            </div>
         </div>
     </aside>
 
@@ -159,15 +201,35 @@
         firebase.initializeApp(firebaseConfig);
         const db = firebase.database();
 
-        let unitData = {
+        // PERSISTENCIA INTELIGENTE: Recuperar del localStorage si existe al arrancar
+        let unitData = JSON.parse(localStorage.getItem('simacero_units')) || {
             'CAMIÓN 5 TON': { waypoints: [], totalKm: 0, totalTime: "--", routeResult: null, activeMarkers: [] },
             'CAMIONETA 01': { waypoints: [], totalKm: 0, totalTime: "--", routeResult: null, activeMarkers: [] },
             'CAMIONETA 02': { waypoints: [], totalKm: 0, totalTime: "--", routeResult: null, activeMarkers: [] }
         };
-        let currentUnit = 'CAMIÓN 5 TON';
+        
+        let currentUnit = localStorage.getItem('simacero_current_unit') || 'CAMIÓN 5 TON';
         let generatedLink = ""; 
         let driverLiveMarker = null; 
         let chatListenerRef = null;  
+        let historicalDirectionsRenderer = null; // Renderer limpio para auditorías de historial
+
+        // Sincronizar almacenamiento local
+        function saveToLocalStorage() {
+            // Limpiamos los marcadores de Google antes de guardar para no romper el JSON stringify
+            let cleanData = {};
+            Object.keys(unitData).forEach(key => {
+                cleanData[key] = {
+                    waypoints: unitData[key].waypoints,
+                    totalKm: unitData[key].totalKm,
+                    totalTime: unitData[key].totalTime,
+                    routeResult: unitData[key].routeResult,
+                    activeMarkers: []
+                };
+            });
+            localStorage.setItem('simacero_units', JSON.stringify(cleanData));
+            localStorage.setItem('simacero_current_unit', currentUnit);
+        }
 
         window.toggleSidebar = (side) => {
             const el = document.getElementById('sidebar-' + side);
@@ -179,10 +241,22 @@
 
         window.toggleCollapsible = (cId, aId) => { document.getElementById(cId).classList.toggle('expanded'); };
 
-        window.selectUnit = (el, name) => {
+        function renderUnitsMenu() {
+            const container = document.getElementById('units-container');
+            container.innerHTML = "";
+            Object.keys(unitData).forEach(name => {
+                const isActive = name === currentUnit;
+                let icon = name.includes("CAMIÓN") ? "🚚" : "🛻";
+                container.innerHTML += `<div class="unit-card p-4 rounded-2xl ${isActive ? 'active' : ''}" onclick="triggerUnitSelection(this, '${name}')">${icon} ${name.toLowerCase()}</div>`;
+            });
+        }
+
+        window.triggerUnitSelection = (el, name) => {
             document.querySelectorAll('.unit-card').forEach(c => c.classList.remove('active'));
-            el.classList.add('active');
+            if(el) el.classList.add('active');
             clearRouteMarkers();
+            if(historicalDirectionsRenderer) historicalDirectionsRenderer.set('directions', null);
+            
             currentUnit = name;
             document.getElementById('active-unit-display').innerText = name;
             document.getElementById('chat-label').innerText = name;
@@ -190,6 +264,7 @@
             document.getElementById('km-display').innerText = unitData[name].totalKm + " km";
             document.getElementById('time-display').innerText = unitData[name].totalTime;
             
+            saveToLocalStorage();
             listenToDriverLive();
             listenToChat();
 
@@ -209,13 +284,10 @@
             const name = document.getElementById('unit-name').value.toUpperCase();
             if(!name || unitData[name]) return;
             unitData[name] = { waypoints: [], totalKm: 0, totalTime: "--", routeResult: null, activeMarkers: [] };
-            const div = document.createElement('div');
-            div.className = "unit-card p-4 rounded-2xl";
-            div.innerHTML = document.getElementById('unit-icon').value + " " + name;
-            div.onclick = function() { selectUnit(this, name); };
-            document.getElementById('units-container').appendChild(div);
             document.getElementById('unit-name').value = "";
             toggleCollapsible('add-unit-widget', 'unit-arrow');
+            saveToLocalStorage();
+            renderUnitsMenu();
         };
 
         let map, directionsService, directionsRenderer, geocoder;
@@ -237,10 +309,19 @@
             directionsRenderer = new google.maps.DirectionsRenderer({ 
                 map: map, suppressMarkers: true, polylineOptions: { strokeColor: '#2563eb', strokeWeight: 5 }
             });
+            
+            historicalDirectionsRenderer = new google.maps.DirectionsRenderer({
+                map: map, suppressMarkers: false, polylineOptions: { strokeColor: '#64748b', strokeWeight: 4, strokeOpacity: 0.7 }
+            });
+
             geocoder = new google.maps.Geocoder();
 
-            listenToDriverLive();
-            listenToChat();
+            // Cargar estado inicial persistido sin fallos
+            renderUnitsMenu();
+            setTimeout(() => { triggerUnitSelection(null, currentUnit); }, 300);
+            
+            // Setear fecha de hoy por defecto al calendario
+            document.getElementById('history-date-picker').value = new Date().toISOString().split('T')[0];
         }
 
         window.addFromAspel = () => {
@@ -251,8 +332,9 @@
                 "9930": { c: "Bloquera Centro", a: "Monterrey Centro", lat: 25.6866, lng: -100.3161 }
             };
             if(db[val]) {
-                unitData[currentUnit].waypoints.push({ location: new google.maps.LatLng(db[val].lat, db[val].lng), stopover: true, name: db[val].c, address: db[val].a });
+                unitData[currentUnit].waypoints.push({ location: { lat: db[val].lat, lng: db[val].lng }, name: db[val].c, address: db[val].a });
                 renderStopsList(); document.getElementById('aspel-input').value = "";
+                saveToLocalStorage();
             }
         };
 
@@ -263,9 +345,10 @@
             geocoder.geocode({ address: addr }, (results, status) => {
                 if (status === "OK") {
                     const loc = results[0].geometry.location;
-                    unitData[currentUnit].waypoints.push({ location: loc, stopover: true, name: name || "Manual", address: addr });
+                    unitData[currentUnit].waypoints.push({ location: { lat: loc.lat(), lng: loc.lng() }, name: name || "Manual", address: addr });
                     renderStopsList();
                     document.getElementById('m-name').value = ""; document.getElementById('m-addr').value = "";
+                    saveToLocalStorage();
                 }
             });
         };
@@ -274,12 +357,16 @@
             const container = document.getElementById('stops-list'); container.innerHTML = "";
             unitData[currentUnit].waypoints.forEach((wp, index) => {
                 const div = document.createElement('div'); div.className = "p-4 bg-white/5 border border-white/10 rounded-xl mb-3 relative";
-                div.innerHTML = `<h4 class='text-xs font-bold text-yellow-400 uppercase'>${index + 1}. ${wp.name}</h4><p class='text-[10px] text-slate-300'>${wp.address}</p><button onclick='removeStop(${index})' class='absolute right-4 top-4'>×</button>`;
+                div.innerHTML = `<h4 class='text-xs font-bold text-yellow-400 uppercase'>${index + 1}. ${wp.name}</h4><p class='text-[10px] text-slate-300'>${wp.address}</p><button onclick='removeStop(${index})' class='absolute right-4 top-4 text-slate-500 hover:text-white font-bold'>×</button>`;
                 container.appendChild(div);
             });
         }
 
-        window.removeStop = (i) => { unitData[currentUnit].waypoints.splice(i, 1); renderStopsList(); };
+        window.removeStop = (i) => { 
+            unitData[currentUnit].waypoints.splice(i, 1); 
+            renderStopsList(); 
+            saveToLocalStorage();
+        };
 
         function clearRouteMarkers() {
             if (unitData[currentUnit] && unitData[currentUnit].activeMarkers) {
@@ -322,7 +409,7 @@
             
             directionsService.route({
                 origin: bodegaSimacero, destination: bodegaSimacero,
-                waypoints: d.waypoints.map(w => ({ location: w.location, stopover: true })),
+                waypoints: d.waypoints.map(w => ({ location: new google.maps.LatLng(w.location.lat, w.location.lng), stopover: true })),
                 optimizeWaypoints: true, travelMode: 'DRIVING'
             }, (res, status) => {
                 if(status === 'OK') {
@@ -347,17 +434,26 @@
                     renderStopsList();
                     redrawRouteMarkers();
 
-                    let coordString = d.waypoints.map(w => `${w.location.lat()},${w.location.lng()}`).join('|');
+                    // PASO CRUCIAL: Subimos las coordenadas ordenadas para que el cel calcule desde su ubicación hacia ellas
+                    let coordString = d.waypoints.map(w => `${w.location.lat},${w.location.lng}`).join('|');
                     let cleanUnitName = currentUnit.replace(/ /g, "_");
-                    db.ref(`routes/${cleanUnitName}`).set({ stops: coordString });
+                    
+                    db.ref(`routes/${cleanUnitName}`).set({ 
+                        stops: coordString,
+                        totalKm: d.totalKm,
+                        totalTime: d.totalTime,
+                        timestamp: Date.now()
+                    });
 
                     buildDriverURL(); 
+                    saveToLocalStorage();
                 }
             });
         };
 
         function listenToDriverLive() {
             let cleanUnitName = currentUnit.replace(/ /g, "_");
+            db.ref(`tracking/${cleanUnitName}`).off(); // Limpiar canal anterior
             db.ref(`tracking/${cleanUnitName}`).on('value', (snapshot) => {
                 const data = snapshot.val();
                 if(data && data.lat) {
@@ -365,10 +461,7 @@
                     if(!driverLiveMarker) {
                         driverLiveMarker = new google.maps.Marker({
                             position: pos, map: map,
-                            icon: {
-                                path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
-                                scale: 5, fillColor: '#22c55e', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 2
-                            },
+                            icon: { path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale: 6, fillColor: '#22c55e', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 2 },
                             title: `Ubicación Real: ${currentUnit}`
                         });
                     } else {
@@ -400,6 +493,11 @@
                     <b class="text-[8px] block uppercase opacity-50">${msg.sender}</b>${msg.text}
                 </div>`;
                 stream.scrollTop = stream.scrollHeight;
+
+                // DETECTAR EVENTO DE CONCLUSIÓN: Si el chofer le da a "Terminar", guardamos en el historial del calendario
+                if(isSystem && msg.text.includes("concluida")) {
+                    archiveRouteHistory();
+                }
             });
         }
 
@@ -411,9 +509,80 @@
             input.value = "";
         };
 
-        window.copyDriverLink = () => {
-            navigator.clipboard.writeText(generatedLink);
-            alert("¡Link de ruta global copiado!");
+        // ==========================================
+        // SISTEMA DE HISTORIAL ARQUITECTÓNICO WEB
+        // ==========================================
+        function archiveRouteHistory() {
+            let cleanUnitName = currentUnit.replace(/ /g, "_");
+            let dateKey = new Date().toISOString().split('T')[0]; // Formato YYYY-MM-DD
+            
+            let coordString = unitData[currentUnit].waypoints.map(w => `${w.location.lat},${w.location.lng}`).join('|');
+            
+            if(unitData[currentUnit].totalKm > 0) {
+                db.ref(`history/${dateKey}`).push({
+                    unit: currentUnit,
+                    km: unitData[currentUnit].totalKm,
+                    time: unitData[currentUnit].totalTime,
+                    stopsData: coordString,
+                    timeString: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
+                });
+            }
+        }
+
+        window.filterHistoryByDate = () => {
+            const targetDate = document.getElementById('history-date-picker').value;
+            const container = document.getElementById('history-list-container');
+            if(!targetDate) return;
+
+            container.innerHTML = "<p class='text-xs text-slate-500 animate-pulse py-4'>Buscando en servidores Simacero...</p>";
+
+            db.ref(`history/${targetDate}`).once('value', (snapshot) => {
+                const data = snapshot.val();
+                container.innerHTML = "";
+                
+                if(!data) {
+                    container.innerHTML = "<p class='text-xs text-slate-500 py-4'>No se registraron rutas completadas en esta fecha.</p>";
+                    return;
+                }
+
+                Object.keys(data).forEach(key => {
+                    const r = data[key];
+                    container.innerHTML += `
+                        <div onclick="previewHistoricalRoute('${r.stopsData}')" class="p-3 bg-white/5 border border-white/10 rounded-xl mb-2 text-left cursor-pointer hover:border-yellow-400 transition-all flex justify-between items-center">
+                            <div>
+                                <h4 class="font-bold text-white text-xs">🚚 ${r.unit}</h4>
+                                <p class="text-[10px] text-slate-400">Entregado a las: ${r.timeString}</p>
+                            </div>
+                            <div class="text-right">
+                                <span class="text-yellow-400 font-bold block text-xs">${r.km} km</span>
+                                <span class="text-[9px] text-slate-500">${r.time}</span>
+                            </div>
+                        </div>`;
+                });
+            });
+        };
+
+        window.previewHistoricalRoute = (stopsData) => {
+            if(!stopsData) return;
+            directionsRenderer.set('directions', null); // Limpiamos la ruta activa de operaciones
+            clearRouteMarkers();
+
+            let coords = stopsData.split('|').map(str => {
+                let parts = str.split(',');
+                return new google.maps.LatLng(parseFloat(parts[0]), parseFloat(parts[1]));
+            });
+
+            // Dibujar el trazo gris histórico en el mapa
+            directionsService.route({
+                origin: bodegaSimacero, destination: bodegaSimacero,
+                waypoints: coords.map(c => ({ location: c, stopover: true })),
+                optimizeWaypoints: false, travelMode: 'DRIVING'
+            }, (res, status) => {
+                if(status === 'OK') {
+                    historicalDirectionsRenderer.setDirections(res);
+                    alert("Mostrando el trayecto auditado en el mapa principal.");
+                }
+            });
         };
 
         window.switchTab = (n) => {
@@ -421,6 +590,7 @@
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
             document.getElementById('tab-'+n).classList.add('active');
             document.getElementById('content-'+n).classList.add('active');
+            if(n === 'historial') filterHistoryByDate(); // Auto-buscar hoy al abrir pestaña
         };
     </script>
     <script async src="https://maps.googleapis.com/maps/api/js?key=AIzaSyARlpmhw29k70jWDXb-NLnNt7wMUoIjaOM&libraries=places,geometry&callback=initMap"></script>

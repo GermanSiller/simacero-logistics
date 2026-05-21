@@ -16,15 +16,24 @@
         #map { height: 50%; width: 100%; background: #cbd5e1; }
         .driver-card { background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(10px); border-top: 2px solid rgba(255, 204, 0, 0.2); }
         .custom-marker { background: #ffcc00; color: #0f172a; font-weight: 900; border: 2px solid white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 11px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+        /* Botón de centrado estilo Google Maps */
+        .geo-btn { position: absolute; bottom: 52%; right: 16px; z-index: 50; background: #1e293b; color: #ffcc00; border: 1px solid rgba(255,255,255,0.1); width: 42px; height: 42px; display: flex; align-items: center; justify-content: center; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); cursor: pointer; transition: 0.2s; }
+        .geo-btn:active { transform: scale(0.9); background: #0f172a; }
     </style>
 </head>
 <body class="flex flex-col h-screen w-screen text-white">
 
-    <div id="map"></div>
+    <div class="relative w-full h-[50%]">
+        <div id="map" class="w-full h-full"></div>
+        
+        <button onclick="recenterToDriver()" class="geo-btn" title="Centrar Ubicación">
+            <i class="ri-focus-3-line text-xl"></i>
+        </button>
 
-    <div class="absolute top-4 right-4 z-50 bg-blue-600 text-white px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wider flex items-center gap-2 shadow-lg">
-        <span class="animate-ping h-2 w-2 rounded-full bg-green-400 inline-block"></span>
-        GPS Chofer Activo
+        <div class="absolute top-4 right-4 z-50 bg-blue-600 text-white px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wider flex items-center gap-2 shadow-lg">
+            <span class="animate-ping h-2 w-2 rounded-full bg-green-400 inline-block"></span>
+            GPS Chofer Activo
+        </div>
     </div>
 
     <div class="flex-1 driver-card flex flex-col p-4 space-y-3 justify-between z-10 shadow-2xl overflow-y-auto">
@@ -34,7 +43,7 @@
                 <p class="text-[9px] text-slate-400 uppercase font-black tracking-widest">Unidad Asignada</p>
                 <h2 id="driver-unit-title" class="text-sm font-black text-yellow-400">CARGANDO UNIDAD...</h2>
             </div>
-            <button onclick="startNavigation()" class="bg-green-500 text-black font-bold text-[11px] px-4 py-2 rounded-xl uppercase tracking-wider flex items-center gap-1 shadow-md">
+            <button onclick="startNavigation()" class="bg-green-500 text-black font-bold text-[11px] px-4 py-2 rounded-xl uppercase tracking-wider flex items-center gap-1 shadow-md hover:bg-green-400 transition-all">
                 <i class="ri-navigation-fill text-xs"></i> Iniciar Ruta
             </button>
         </div>
@@ -54,7 +63,7 @@
             <p class="text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-2 border-b border-white/5 pb-1"><i class="ri-message-3-line"></i> Mensajes con Central</p>
             <div id="driver-chat-stream" class="flex-1 overflow-y-auto space-y-2 text-xs flex flex-col"></div>
             <div class="mt-2 flex gap-2">
-                <input type="text" id="driver-msg" class="flex-1 bg-slate-800 text-white text-xs rounded-lg px-3 py-2 outline-none" placeholder="Responder a Matriz...">
+                <input type="text" id="driver-msg" class="flex-1 bg-slate-800 text-white text-xs rounded-lg px-3 py-2 outline-none border border-white/5 focus:border-yellow-400" placeholder="Responder a Matriz...">
                 <button onclick="sendDriverMessage()" class="bg-yellow-400 text-black px-3 rounded-lg text-sm"><i class="ri-send-plane-fill"></i></button>
             </div>
         </div>
@@ -65,7 +74,7 @@
                 <span id="photo-status">Tomar Foto Evidencia</span>
                 <input type="file" accept="image/*" capture="environment" class="hidden" onchange="handleEvidence(this)">
             </label>
-            <button onclick="finishRoute()" class="bg-yellow-400 text-black px-6 rounded-xl text-xs font-black uppercase tracking-wider shadow-md">
+            <button onclick="finishRoute()" class="bg-yellow-400 text-black px-6 rounded-xl text-xs font-black uppercase tracking-wider shadow-md hover:bg-yellow-300 transition-all">
                 Terminar
             </button>
         </div>
@@ -92,17 +101,24 @@
         let currentDriverPos = null;
         let userMarker = null;
         let activeMarkers = [];
-        let unitId = "CAMIÓN_5_TON";
+        let isNavigating = false; // Bandera para control del zoom dinámico
+        
+        // Recuperar parámetros e integrar persistencia local
+        const urlParams = new URLSearchParams(window.location.search);
+        let unitId = urlParams.get('unit') || localStorage.getItem('simacero_driver_unit') || "CAMIÓN_5_TON";
+        localStorage.setItem('simacero_driver_unit', unitId);
+
         const bodegaSimacero = { lat: 25.57881, lng: -100.23874 };
 
         function initDriverPage() {
-            const urlParams = new URLSearchParams(window.location.search);
-            unitId = urlParams.get('unit') || "CAMIÓN_5_TON";
-
             document.getElementById('driver-unit-title').innerText = unitId.replace(/_/g, " ");
 
+            // Inicialización de mapa con controles nativos activos de brújula
             map = new google.maps.Map(document.getElementById("map"), {
-                zoom: 14, center: bodegaSimacero, disableDefaultUI: true
+                zoom: 14, 
+                center: bodegaSimacero, 
+                disableDefaultUI: true,
+                compassControl: true // Activa brújula si el dispositivo cuenta con giroscopio
             });
 
             directionsService = new google.maps.DirectionsService();
@@ -121,8 +137,14 @@
                             icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: '#22c55e', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 2 },
                             title: "Tu ubicación"
                         });
+                        map.panTo(currentDriverPos);
                     } else {
                         userMarker.setPosition(currentDriverPos);
+                    }
+                    
+                    // Si el modo seguimiento está activo, la cámara se mueve con el chofer a corta distancia
+                    if(isNavigating) {
+                        map.panTo(currentDriverPos);
                     }
                     
                     // Transmitir posición viva a Firebase para mover el camión en la oficina
@@ -133,7 +155,17 @@
             listenToChat();
         }
 
-        // CÁLCULO DE ENRUTAMIENTO DESDE LA UBICACIÓN SATELITAL DEL OPERADOR
+        // CONTROL ACCIONABLE DE RE-CENTRADO (BOTÓN FLOTANTE)
+        window.recenterToDriver = () => {
+            if(currentDriverPos) {
+                map.setZoom(17);
+                map.panTo(currentDriverPos);
+            } else {
+                alert("Buscando señal de satélites GPS...");
+            }
+        };
+
+        // CÁLCULO DE ENRUTAMIENTO DINÁMICO DESDE LA UBICACIÓN REAL DEL CHOFER
         function startNavigation() {
             if(!currentDriverPos) return alert("Esperando señal estable del satélite GPS...");
 
@@ -150,17 +182,30 @@
                 activeMarkers.forEach(m => m.setMap(null));
                 activeMarkers = [];
 
-                // CONFIGURACIÓN DE RUTA DESDE LA POSICIÓN REAL DEL TELÉFONO
+                // CONFIGURACIÓN DE RUTA DESDE LA POSICIÓN REAL DEL TELÉFONO (Origin dinámico = GPS Chofer)
                 directionsService.route({
-                    origin: currentDriverPos,
-                    destination: bodegaSimacero, // Regresa a planta en circuito cerrado
+                    origin: currentDriverPos, 
+                    destination: bodegaSimacero, // Destino final obligatorio de circuito de retorno
                     waypoints: coords.map(c => ({ location: c, stopover: true })),
-                    optimizeWaypoints: false, // Ya viene acomodada perfectamente desde matriz
+                    optimizeWaypoints: true, // Google optimiza de forma inteligente partiendo del chofer hacia SIMA
                     travelMode: 'DRIVING'
                 }, (res, status) => {
                     if (status === 'OK') {
                         directionsRenderer.setDirections(res);
+                        isNavigating = true;
                         
+                        // ZOOM DINÁMICO Y ENFOQUE CERCANO AL ARRANCAR RUTA (Estilo Google Maps)
+                        map.setZoom(17);
+                        map.panTo(currentDriverPos);
+                        
+                        // DIBUJAR MARCADOR DE CIERRE DE RUTA (SIMACERO MATRIZ)
+                        const finalStopMarker = new google.maps.Marker({
+                            position: bodegaSimacero, map: map,
+                            icon: { path: google.maps.SymbolPath.BACKWARD_CLOSED_ARROW, fillColor: '#2563eb', fillOpacity: 1, strokeWeight: 2, strokeColor: '#ffffff', scale: 5 },
+                            label: { text: "SIMA", color: "#ffffff", fontWeight: "900", fontSize: "10px" }
+                        });
+                        activeMarkers.push(finalStopMarker);
+
                         // CÁLCULO DE MÉTRICAS DINÁMICAS
                         let dist = 0; let time = 0;
                         res.routes[0].legs.forEach(l => { dist += l.distance.value; time += l.duration.value; });
@@ -168,7 +213,7 @@
                         document.getElementById('distance-display').innerText = (dist / 1000).toFixed(1) + " km";
                         document.getElementById('eta-display').innerText = Math.round(time / 60) + " min";
 
-                        // REDIBUJAR ENUMERACIÓN ESTÉTICA (1, 2, 3...)
+                        // REDIBUJAR ENUMERACIÓN ESTÉTICA EN CLIENTES (1, 2, 3...)
                         res.routes[0].legs.forEach((leg, i) => {
                             if (i < res.routes[0].legs.length - 1) {
                                 let overlay = new google.maps.OverlayView();
@@ -178,7 +223,6 @@
                                     div.innerText = i + 1;
                                     this.getPanes().overlayMouseTarget.appendChild(div);
                                     
-                                    // Guardar el elemento en memoria para limpieza de variables
                                     activeMarkers.push({ setMap: function(val) { if(!val) div.remove(); } });
 
                                     this.draw = function() {
@@ -197,7 +241,6 @@
             });
         }
 
-        // ESCUCHA DE CHAT COOPERATIVO EN TIEMPO REAL
         function listenToChat() {
             const stream = document.getElementById('driver-chat-stream');
             db.ref(`chats/${unitId}`).on('child_added', (snapshot) => {
@@ -223,7 +266,6 @@
             document.getElementById('driver-msg').value = "";
         }
 
-        // CONTROL FOTOGRÁFICO CON ALERTA SATELITAL A CENTRAL
         function handleEvidence(input) {
             if (input.files && input.files[0]) {
                 document.getElementById('photo-status').innerText = "✓ Evidencia Capturada";
@@ -236,8 +278,14 @@
         }
 
         function finishRoute() {
-            alert("Ruta concluida exitosamente. Sincronizando con base de datos corporativa.");
-            window.close();
+            if(confirm("¿Seguro que deseas dar por concluida la entrega completa de la ruta?")) {
+                db.ref(`chats/${unitId}`).push({ 
+                    sender: 'SISTEMA', 
+                    text: `🏁 Ruta concluida exitosamente por el operador. Sincronizando historial...`, 
+                    timestamp: Date.now() 
+                });
+                alert("Información guardada en los servidores de Simacero.");
+            }
         }
     </script>
     <script async src="https://maps.googleapis.com/maps/api/js?key=AIzaSyARlpmhw29k70jWDXb-NLnNt7wMUoIjaOM&libraries=geometry&callback=initDriverPage"></script>
