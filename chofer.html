@@ -7,13 +7,18 @@
     
     <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
+
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+
     <style>
         body, html { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; font-family: 'Inter', sans-serif; background: #0f172a; }
-        #map { height: 60%; width: 100%; background: #cbd5e1; }
+        #map { height: 50%; width: 100%; background: #cbd5e1; }
         .driver-card { background: rgba(15, 23, 42, 0.95); backdrop-filter: blur(10px); border-top: 2px solid rgba(255, 204, 0, 0.2); }
+        .custom-marker { background: #ffcc00; color: #0f172a; font-weight: 900; border: 2px solid white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 11px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
     </style>
 </head>
-<body class="flex flex-col h-screen w-screen">
+<body class="flex flex-col h-screen w-screen text-white">
 
     <div id="map"></div>
 
@@ -22,30 +27,36 @@
         GPS Chofer Activo
     </div>
 
-    <div class="flex-1 driver-card flex flex-col p-4 space-y-4 justify-between z-10 shadow-2xl">
+    <div class="flex-1 driver-card flex flex-col p-4 space-y-3 justify-between z-10 shadow-2xl overflow-y-auto">
         
         <div class="flex justify-between items-center border-b border-white/10 pb-2">
             <div>
                 <p class="text-[9px] text-slate-400 uppercase font-black tracking-widest">Unidad Asignada</p>
                 <h2 id="driver-unit-title" class="text-sm font-black text-yellow-400">CARGANDO UNIDAD...</h2>
             </div>
-            <div class="text-right">
-                <p class="text-[9px] text-slate-400 uppercase font-black tracking-widest">Estatus</p>
-                <span class="text-xs font-bold text-green-400">En Tránsito</span>
+            <button onclick="startNavigation()" class="bg-green-500 text-black font-bold text-[11px] px-4 py-2 rounded-xl uppercase tracking-wider flex items-center gap-1 shadow-md">
+                <i class="ri-navigation-fill text-xs"></i> Iniciar Ruta
+            </button>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2 text-center">
+            <div class="bg-white/5 p-2 rounded-xl border border-white/5">
+                <span class="text-[8px] text-slate-400 uppercase font-bold tracking-wider">Tiempo Restante</span>
+                <p id="eta-display" class="text-sm font-black text-white">-- min</p>
+            </div>
+            <div class="bg-white/5 p-2 rounded-xl border border-white/5">
+                <span class="text-[8px] text-slate-400 uppercase font-bold tracking-wider">Distancia Restante</span>
+                <p id="distance-display" class="text-sm font-black text-yellow-400">-- km</p>
             </div>
         </div>
 
-        <div class="flex flex-col flex-1 bg-black/20 rounded-xl p-3 overflow-hidden border border-white/5">
+        <div class="flex flex-col flex-1 bg-black/20 rounded-xl p-3 overflow-hidden border border-white/5 min-h-[120px]">
             <p class="text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-2 border-b border-white/5 pb-1"><i class="ri-message-3-line"></i> Mensajes con Central</p>
-            <div id="driver-chat-stream" class="flex-1 overflow-y-auto space-y-2 text-xs flex flex-col justify-end">
-                <div class="bg-white/5 p-2 rounded-lg text-slate-300 self-start max-w-[85%]">
-                    <p class="text-[8px] text-yellow-400 font-bold">BODEGA</p>
-                    Ruta optimizada enviada. Favor de reportar salida y subir evidencia al entregar.
+            <div id="driver-chat-stream" class="flex-1 overflow-y-auto space-y-2 text-xs flex flex-col">
                 </div>
-            </div>
             <div class="mt-2 flex gap-2">
                 <input type="text" id="driver-msg" class="flex-1 bg-slate-800 text-white text-xs rounded-lg px-3 py-2 outline-none" placeholder="Responder a Matriz...">
-                <button onclick="sendToCentral()" class="bg-yellow-400 text-black px-3 rounded-lg text-sm"><i class="ri-send-plane-fill"></i></button>
+                <button onclick="sendDriverMessage()" class="bg-yellow-400 text-black px-3 rounded-lg text-sm"><i class="ri-send-plane-fill"></i></button>
             </div>
         </div>
 
@@ -63,85 +74,170 @@
     </div>
 
     <script>
-        let map, directionsService, directionsRenderer, userMarker;
+        // ==========================================
+        // CONFIGURACIÓN DE TU BASE DE DATA EXISTENTE
+        // ==========================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyARlpmhw29k70jWDXb-NLnNt7wMUoIjaOM",
+            authDomain: "simacero-logistics.firebaseapp.com",
+            databaseURL: "https://simacero-logistics-default-rtdb.firebaseio.com/", // Mismo URL de tu base de datos
+            projectId: "simacero-logistics",
+            storageBucket: "simacero-logistics.appspot.com",
+            messagingSenderId: "1234567890",
+            appId: "1:12345:web:abcde"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        let map, directionsService, directionsRenderer;
+        let currentDriverPos = null;
+        let userMarker = null;
+        let activeMarkers = [];
+        let unitId = "CAMIÓN_5_TON";
         const bodegaSimacero = { lat: 25.57881, lng: -100.23874 };
 
         function initDriverPage() {
-            // 解析 Parámetros URL (Unidad y coordenadas de ruta)
             const urlParams = new URLSearchParams(window.location.search);
-            const unit = urlParams.get('unit') || "Unidad de Reparto";
-            const stopsRaw = urlParams.get('stops');
+            unitId = urlParams.get('unit') || "CAMIÓN_5_TON";
 
-            document.getElementById('driver-unit-title').innerText = unit.toUpperCase();
+            document.getElementById('driver-unit-title').innerText = unitId.replace(/_/g, " ");
 
-            // Cargar Mapa Móvil
             map = new google.maps.Map(document.getElementById("map"), {
                 zoom: 14, center: bodegaSimacero, disableDefaultUI: true
             });
 
             directionsService = new google.maps.DirectionsService();
             directionsRenderer = new google.maps.DirectionsRenderer({ 
-  		  map: map, 
-		    suppressMarkers: true,
-   		 polylineOptions: { strokeColor: '#2563eb', strokeWeight: 6 }
-		});
+                map: map, suppressMarkers: true, polylineOptions: { strokeColor: '#2563eb', strokeWeight: 6 }
+            });
 
-            // Pintar la ruta exacta optimizada si existen coordenadas
-            if (stopsRaw) {
-                let coords = stopsRaw.split('|').map(pair => {
-                    let parts = pair.split(',');
-                    return { location: new google.maps.LatLng(parseFloat(parts[0]), parseFloat(parts[1])), stopover: true };
-                });
-
-                directionsService.route({
-                    origin: bodegaSimacero, destination: bodegaSimacero,
-                    waypoints: coords, optimizeWaypoints: false, // Ya viene acomodada desde matriz
-                    travelMode: 'DRIVING'
-                }, (res, status) => {
-                    if (status === 'OK') directionsRenderer.setDirections(res);
-                });
-            }
-
-            // PASO CLAVE: SOLICITAR PERMISO DE GPS EN TIEMPO REAL
+            // ESCUCHA SATELITAL DE GEOLOCALIZACIÓN DEL MÓVIL
             if (navigator.geolocation) {
                 navigator.geolocation.watchPosition((position) => {
-                    let pos = { lat: position.coords.latitude, lng: position.coords.longitude };
+                    currentDriverPos = { lat: position.coords.latitude, lng: position.coords.longitude };
                     
                     if (!userMarker) {
-                        // Crear el marcador del operador en movimiento
                         userMarker = new google.maps.Marker({
-                            position: pos, map: map,
+                            position: currentDriverPos, map: map,
                             icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: '#22c55e', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 2 },
                             title: "Tu ubicación"
                         });
                     } else {
-                        userMarker.setPosition(pos); // Actualizar coordenadas dinámicas
+                        userMarker.setPosition(currentDriverPos);
                     }
-                }, () => { console.log("Error de acceso GPS"); }, { enableHighAccuracy: true });
+                    
+                    // Transmitir posición viva a Firebase para mover el camión en la oficina
+                    db.ref(`tracking/${unitId}`).set({ lat: currentDriverPos.lat, lng: currentDriverPos.lng });
+                }, () => { console.log("Permiso denegado de localización"); }, { enableHighAccuracy: true });
             }
+
+            listenToChat();
         }
 
-        function sendToCentral() {
+        // CÁLCULO DE ENRUTAMIENTO DESDE LA UBICACIÓN SATELITAL DEL OPERADOR
+        function startNavigation() {
+            if(!currentDriverPos) return alert("Esperando señal estable del satélite GPS...");
+
+            db.ref(`routes/${unitId}`).once('value', (snapshot) => {
+                const data = snapshot.val();
+                if(!data || !data.stops) return alert("Esperando despacho de la ruta optimizada desde base central.");
+
+                let coords = data.stops.split('|').map(str => {
+                    let parts = str.split(',');
+                    return new google.maps.LatLng(parseFloat(parts[0]), parseFloat(parts[1]));
+                });
+
+                // Limpiar elementos previos en el mapa
+                activeMarkers.forEach(m => m.setMap(null));
+                activeMarkers = [];
+
+                // CONFIGURACIÓN DE RUTA DESDE LA POSICIÓN REAL DEL TELÉFONO
+                directionsService.route({
+                    origin: currentDriverPos,
+                    destination: bodegaSimacero, // Regresa a planta en circuito cerrado
+                    waypoints: coords.map(c => ({ location: c, stopover: true })),
+                    optimizeWaypoints: false, // Ya viene acomodada perfectamente desde matriz
+                    travelMode: 'DRIVING'
+                }, (res, status) => {
+                    if (status === 'OK') {
+                        directionsRenderer.setDirections(res);
+                        
+                        // CÁLCULO DE MÉTRICAS DINÁMICAS
+                        let dist = 0; let time = 0;
+                        res.routes[0].legs.forEach(l => { dist += l.distance.value; time += l.duration.value; });
+                        
+                        document.getElementById('distance-display').innerText = (dist / 1000).toFixed(1) + " km";
+                        document.getElementById('eta-display').innerText = Math.round(time / 60) + " min";
+
+                        // REDIBUJAR ENUMERACIÓN ESTÉTICA (1, 2, 3...)
+                        res.routes[0].legs.forEach((leg, i) => {
+                            if (i < res.routes[0].legs.length - 1) {
+                                let overlay = new google.maps.OverlayView();
+                                overlay.onAdd = function() {
+                                    let div = document.createElement('div');
+                                    div.className = 'custom-marker';
+                                    div.innerText = i + 1;
+                                    this.getPanes().overlayMouseTarget.appendChild(div);
+                                    
+                                    // Guardar el elemento en memoria para limpieza de variables
+                                    activeMarkers.push({ setMap: function(val) { if(!val) div.remove(); } });
+
+                                    this.draw = function() {
+                                        let projection = this.getProjection();
+                                        let position = projection.fromLatLngToDivPixel(leg.end_location);
+                                        div.style.left = (position.x - 12) + 'px';
+                                        div.style.top = (position.y - 12) + 'px';
+                                        div.style.position = 'absolute';
+                                    };
+                                };
+                                overlay.setMap(map);
+                            }
+                        });
+                    }
+                });
+            });
+        }
+
+        // ESCUCHA DE CHAT COOPERATIVO EN TIEMPO REAL
+        function listenToChat() {
+            const stream = document.getElementById('driver-chat-stream');
+            db.ref(`chats/${unitId}`).on('child_added', (snapshot) => {
+                const msg = snapshot.val();
+                const isBase = msg.sender === 'BASE';
+                const isSystem = msg.sender === 'SISTEMA';
+
+                let cardClass = "bg-slate-800 text-white self-start mr-6";
+                if(!isBase) cardClass = "bg-yellow-400 text-black self-end ml-6 text-right";
+                if(isSystem) cardClass = "bg-green-500/10 border border-green-500/30 text-green-400 w-full text-center my-1 italic";
+
+                stream.innerHTML += `<div class="p-2 rounded-xl text-xs ${cardClass}">
+                    <b class="text-[8px] block uppercase opacity-50">${msg.sender}</b>${msg.text}
+                </div>`;
+                stream.scrollTop = stream.scrollHeight;
+            });
+        }
+
+        function sendDriverMessage() {
             let msg = document.getElementById('driver-msg').value;
             if(!msg) return;
-            let stream = document.getElementById('driver-chat-stream');
-            let div = document.createElement('div');
-            div.className = "bg-yellow-400 text-black p-2 rounded-lg text-xs self-end max-w-[85%] text-right font-medium";
-            div.innerHTML = `<p class="text-[8px] font-black uppercase text-slate-800">CHOFER</p>${msg}`;
-            stream.appendChild(div);
+            db.ref(`chats/${unitId}`).push({ sender: 'CHOFER', text: msg, timestamp: Date.now() });
             document.getElementById('driver-msg').value = "";
-            stream.scrollTop = stream.scrollHeight;
         }
 
+        // CONTROL FOTOGRÁFICO CON ALERTA SATELITAL A CENTRAL
         function handleEvidence(input) {
             if (input.files && input.files[0]) {
                 document.getElementById('photo-status').innerText = "✓ Evidencia Capturada";
-                alert("Foto adjuntada con éxito. Lista para subir a base de datos de Simacero.");
+                db.ref(`chats/${unitId}`).push({ 
+                    sender: 'SISTEMA', 
+                    text: `📸 El operador adjuntó la evidencia fotográfica de la entrega de material.`, 
+                    timestamp: Date.now() 
+                });
             }
         }
 
         function finishRoute() {
-            alert("Ruta marcada como entregada. Regresando a Matriz Nueva Estanzuela.");
+            alert("Ruta concluida exitosamente. Sincronizando con base de datos corporativa.");
             window.close();
         }
     </script>

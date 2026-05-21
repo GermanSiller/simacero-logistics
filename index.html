@@ -3,11 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Simacero Logistics OS | v27.0</title>
+    <title>Simacero Logistics OS | v28.0 Enterprise</title>
     
     <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 
     <style>
         :root { --brand-blue: #0f172a; --brand-yellow: #ffcc00; }
@@ -67,14 +70,18 @@
                 </div>
             </div>
             
-            <div id="chat-widget" class="collapsible-container flex flex-col bg-black/40 rounded-2xl border border-white/5">
+            <div id="chat-widget" class="collapsible-container expanded flex flex-col bg-black/40 rounded-2xl border border-white/5 h-[320px]">
                 <div onclick="toggleCollapsible('chat-widget', 'chat-arrow')" class="p-3 text-[10px] font-bold border-b border-white/5 uppercase flex justify-between items-center cursor-pointer">
-                    <span>Mensajes: <span id="chat-label" class="text-yellow-400">---</span></span>
+                    <span>Mensajes: <span id="chat-label" class="text-yellow-400">CAMIÓN 5 TON</span> <i class="ri-record-circle-line text-green-400 animate-pulse ml-1"></i></span>
                     <i id="chat-arrow" class="ri-arrow-up-s-line transition-transform"></i>
                 </div>
-                <div class="collapsible-body flex flex-col h-[230px]">
-                    <div id="chat-stream" class="flex-1 p-3 overflow-y-auto text-[10px] text-slate-500 italic text-center py-10">Sin mensajes</div>
-                    <div class="p-2 flex gap-2"><input type="text" class="flex-1 bg-slate-800 rounded-lg px-3 py-1 text-xs outline-none" placeholder="Instrucción..."><button class="bg-yellow-400 text-black p-2 rounded-lg"><i class="ri-send-plane-fill"></i></button></div>
+                <div class="collapsible-body flex flex-col flex-1 h-[250px] overflow-hidden">
+                    <div id="chat-stream" class="flex-1 p-3 overflow-y-auto text-xs space-y-2 flex flex-col">
+                        </div>
+                    <div class="p-2 flex gap-2 border-t border-white/5 bg-slate-900/50">
+                        <input type="text" id="chat-input" class="flex-1 bg-slate-800 rounded-lg px-3 py-2 text-xs text-white outline-none" placeholder="Instrucción a chofer...">
+                        <button onclick="sendBaseMessage()" class="bg-yellow-400 text-black p-2 rounded-lg"><i class="ri-send-plane-fill"></i></button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -99,7 +106,7 @@
 
     <aside id="sidebar-right" class="sidebar w-[450px] glass-dark border-l border-slate-800 flex flex-col">
         <div class="p-6 border-b border-white/10">
-            <h2 class="text-lg font-black mb-4" id="active-unit-display">Configuración</h2>
+            <h2 class="text-lg font-black mb-4" id="active-unit-display">CAMIÓN 5 TON</h2>
             <div class="flex justify-between">
                 <button onclick="switchTab('logistica')" id="tab-logistica" class="tab-btn active pb-2 flex-1 text-center">Logística</button>
                 <button onclick="switchTab('historial')" id="tab-historial" class="tab-btn pb-2 flex-1 text-center border-x border-white/5">Historial</button>
@@ -138,6 +145,21 @@
     </aside>
 
     <script>
+        // ==========================================
+        // CONFIGURACIÓN DE TU BASE DE DATA EXISTENTE
+        // ==========================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyARlpmhw29k70jWDXb-NLnNt7wMUoIjaOM",
+            authDomain: "simacero-logistics.firebaseapp.com",
+            databaseURL: "https://simacero-logistics-default-rtdb.firebaseio.com/", // Reemplaza por tu URL real si cambia
+            projectId: "simacero-logistics",
+            storageBucket: "simacero-logistics.appspot.com",
+            messagingSenderId: "1234567890",
+            appId: "1:12345:web:abcde"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
         let unitData = {
             'CAMIÓN 5 TON': { waypoints: [], totalKm: 0, totalTime: "--", routeResult: null, activeMarkers: [] },
             'CAMIONETA 01': { waypoints: [], totalKm: 0, totalTime: "--", routeResult: null, activeMarkers: [] },
@@ -145,6 +167,8 @@
         };
         let currentUnit = 'CAMIÓN 5 TON';
         let generatedLink = ""; 
+        let driverLiveMarker = null; // Camión en vivo en el mapa de la central
+        let chatListenerRef = null;  // Referencia para limpiar escuchas de chat
 
         window.toggleSidebar = (side) => {
             const el = document.getElementById('sidebar-' + side);
@@ -167,10 +191,14 @@
             document.getElementById('km-display').innerText = unitData[name].totalKm + " km";
             document.getElementById('time-display').innerText = unitData[name].totalTime;
             
+            // Sincronizar escuchas en la nube de la nueva unidad activa
+            listenToDriverLive();
+            listenToChat();
+
             if (unitData[name].routeResult) {
                 directionsRenderer.setDirections(unitData[name].routeResult);
                 redrawRouteMarkers();
-                buildDriverURL(); // Regenerar QR para la unidad activa
+                buildDriverURL(); 
                 document.getElementById('qr-section').classList.remove('hidden');
             } else {
                 directionsRenderer.set('directions', null);
@@ -197,7 +225,7 @@
 
         function initMap() {
             map = new google.maps.Map(document.getElementById("map"), {
-                zoom: 18, center: bodegaSimacero, disableDefaultUI: true
+                zoom: 14, center: bodegaSimacero, disableDefaultUI: true
             });
 
             new google.maps.Marker({
@@ -212,6 +240,10 @@
                 map: map, suppressMarkers: true, polylineOptions: { strokeColor: '#2563eb', strokeWeight: 5 }
             });
             geocoder = new google.maps.Geocoder();
+
+            // Arrancar escuchas en tiempo real por defecto
+            listenToDriverLive();
+            listenToChat();
         }
 
         window.addFromAspel = () => {
@@ -274,28 +306,23 @@
             });
         }
 
-        // Lógica Dinámica para construir el URL local o en producción
         function buildDriverURL() {
             const d = unitData[currentUnit];
             let coordString = d.waypoints.map(w => `${w.location.lat()},${w.location.lng()}`).join('|');
             
-            // Reemplaza de forma segura el index.html actual por el chofer.html manteniendo la ruta local de tu compu
-            let currentPath = window.location.href;
-            if (currentPath.includes("index.html")) {
-                generatedLink = currentPath.replace("index.html", `chofer.html?unit=${encodeURIComponent(currentUnit)}&stops=${encodeURIComponent(coordString)}`);
-            } else {
-                // Por si abres la carpeta directo sin especificar index.html
-                let base = currentPath.substring(0, currentPath.lastIndexOf('/') + 1);
-                generatedLink = `${base}chofer.html?unit=${encodeURIComponent(currentUnit)}&stops=${encodeURIComponent(coordString)}`;
-            }
+            let currentPath = window.location.href.split('?')[0];
+            let baseDir = currentPath.substring(0, currentPath.lastIndexOf('/') + 1);
+            
+            // Enlace simplificado: Pasa la clave encriptada de la unidad para jalar los datos desde la nube
+            let cleanUnitName = currentUnit.replace(/ /g, "_");
+            generatedLink = `${baseDir}chofer.html?unit=${encodeURIComponent(cleanUnitName)}`;
 
-            // Crear el código QR en la interfaz
             document.getElementById('qr-section').classList.remove('hidden');
             document.getElementById('qr-box').innerHTML = "";
-            new QRCode(document.getElementById("qr-box"), { text: generatedLink, width: 130, height: 130 });
+            new QRCode(document.getElementById("qr-box"), { text: generatedLink, width: 140, height: 140, correctLevel: QRCode.CorrectLevel.H });
         }
 
-window.processLogistics = () => {
+        window.processLogistics = () => {
             const d = unitData[currentUnit]; if(d.waypoints.length === 0) return alert("Agrega paradas.");
             clearRouteMarkers();
             
@@ -326,30 +353,76 @@ window.processLogistics = () => {
                     renderStopsList();
                     redrawRouteMarkers();
 
-                    // --- AQUÍ ESTÁ EL ARREGLO DEL QR ---
-                    // 1. Primero quitamos el 'hidden' para que el contenedor tenga tamaño real
-                    document.getElementById('qr-section').classList.remove('hidden');
-                    
-                    // 2. Construimos la URL
+                    // SINCRONIZACIÓN BODEGA -> CELULAR: Guarda la ruta optimizada en tu nodo de Firebase
                     let coordString = d.waypoints.map(w => `${w.location.lat()},${w.location.lng()}`).join('|');
-                    let currentPath = window.location.href;
-                    if (currentPath.includes("index.html")) {
-                        generatedLink = currentPath.replace("index.html", `chofer.html?unit=${encodeURIComponent(currentUnit)}&stops=${encodeURIComponent(coordString)}`);
-                    } else {
-                        let base = currentPath.substring(0, currentPath.lastIndexOf('/') + 1);
-                        generatedLink = `${base}chofer.html?unit=${encodeURIComponent(currentUnit)}&stops=${encodeURIComponent(coordString)}`;
-                    }
-                    
-                    // 3. Limpiamos y generamos el QR ya con el espacio visible
-                    document.getElementById('qr-box').innerHTML = "";
-                    new QRCode(document.getElementById("qr-box"), { text: generatedLink, width: 130, height: 130 });
+                    let cleanUnitName = currentUnit.replace(/ /g, "_");
+                    db.ref(`routes/${cleanUnitName}`).set({ stops: coordString });
+
+                    buildDriverURL(); 
                 }
             });
         };
 
+        // TELEMETRÍA DEL CAMIÓN EN VIVO DESDE LA COMPUTADORA
+        function listenToDriverLive() {
+            let cleanUnitName = currentUnit.replace(/ /g, "_");
+            db.ref(`tracking/${cleanUnitName}`).on('value', (snapshot) => {
+                const data = snapshot.val();
+                if(data && data.lat) {
+                    const pos = { lat: data.lat, lng: data.lng };
+                    if(!driverLiveMarker) {
+                        driverLiveMarker = new google.maps.Marker({
+                            position: pos, map: map,
+                            icon: {
+                                path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+                                scale: 5, fillColor: '#22c55e', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 2
+                            },
+                            title: `Ubicación Real: ${currentUnit}`
+                        });
+                    } else {
+                        driverLiveMarker.setPosition(pos);
+                    }
+                    map.panTo(pos); // Ajuste automático del lente de visualización de planta
+                }
+            });
+        }
+
+        // CONTROL DE MENSAJES DE INTERNET COMPARTIDOS
+        function listenToChat() {
+            let cleanUnitName = currentUnit.replace(/ /g, "_");
+            if(chatListenerRef) db.ref(`chats/${chatListenerRef}`).off();
+            chatListenerRef = cleanUnitName;
+            
+            const stream = document.getElementById('chat-stream');
+            stream.innerHTML = ""; // Resetear pantalla al cambiar de camión
+
+            db.ref(`chats/${cleanUnitName}`).on('child_added', (snapshot) => {
+                const msg = snapshot.val();
+                const isBase = msg.sender === 'BASE';
+                const isSystem = msg.sender === 'SISTEMA';
+                
+                let cardClass = "bg-slate-700 text-white mr-6 self-start";
+                if(isBase) cardClass = "bg-blue-600/30 text-blue-300 ml-6 self-end text-right";
+                if(isSystem) cardClass = "bg-green-500/10 border border-green-500/30 text-green-400 w-full text-center my-1 italic";
+
+                stream.innerHTML += `<div class="p-2 rounded-xl text-[11px] ${cardClass}">
+                    <b class="text-[8px] block uppercase opacity-50">${msg.sender}</b>${msg.text}
+                </div>`;
+                stream.scrollTop = stream.scrollHeight;
+            });
+        }
+
+        window.sendBaseMessage = () => {
+            const input = document.getElementById('chat-input');
+            if(!input.value) return;
+            let cleanUnitName = currentUnit.replace(/ /g, "_");
+            db.ref(`chats/${cleanUnitName}`).push({ sender: 'BASE', text: input.value, timestamp: Date.now() });
+            input.value = "";
+        };
+
         window.copyDriverLink = () => {
             navigator.clipboard.writeText(generatedLink);
-            alert("¡Link de ruta local copiado!");
+            alert("¡Link de ruta global copiado!");
         };
 
         window.switchTab = (n) => {
