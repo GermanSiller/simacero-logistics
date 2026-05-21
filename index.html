@@ -76,8 +76,7 @@
                     <i id="chat-arrow" class="ri-arrow-up-s-line transition-transform"></i>
                 </div>
                 <div class="collapsible-body flex flex-col flex-1 h-[250px] overflow-hidden">
-                    <div id="chat-stream" class="flex-1 p-3 overflow-y-auto text-xs space-y-2 flex flex-col">
-                        </div>
+                    <div id="chat-stream" class="flex-1 p-3 overflow-y-auto text-xs space-y-2 flex flex-col"></div>
                     <div class="p-2 flex gap-2 border-t border-white/5 bg-slate-900/50">
                         <input type="text" id="chat-input" class="flex-1 bg-slate-800 rounded-lg px-3 py-2 text-xs text-white outline-none" placeholder="Instrucción a chofer...">
                         <button onclick="sendBaseMessage()" class="bg-yellow-400 text-black p-2 rounded-lg"><i class="ri-send-plane-fill"></i></button>
@@ -149,13 +148,13 @@
         // CONFIGURACIÓN DE TU BASE DE DATA EXISTENTE
         // ==========================================
         const firebaseConfig = {
-            apiKey: "AIzaSyARlpmhw29k70jWDXb-NLnNt7wMUoIjaOM",
-            authDomain: "simacero-logistics.firebaseapp.com",
-            databaseURL: "https://simacero-logistics-default-rtdb.firebaseio.com/", // Reemplaza por tu URL real si cambia
-            projectId: "simacero-logistics",
-            storageBucket: "simacero-logistics.appspot.com",
-            messagingSenderId: "1234567890",
-            appId: "1:12345:web:abcde"
+            apiKey: "AIzaSyBpMBLv5kxa34w9ArM81MtxVTPfPkgteyA",
+            authDomain: "logistica-simacero.firebaseapp.com",
+            databaseURL: "https://logistica-simacero-default-rtdb.firebaseio.com",
+            projectId: "logistica-simacero",
+            storageBucket: "logistica-simacero.firebasestorage.app",
+            messagingSenderId: "161319584462",
+            appId: "1:161319584462:web:4526976d7e15fe89b4869f"
         };
         firebase.initializeApp(firebaseConfig);
         const db = firebase.database();
@@ -167,8 +166,8 @@
         };
         let currentUnit = 'CAMIÓN 5 TON';
         let generatedLink = ""; 
-        let driverLiveMarker = null; // Camión en vivo en el mapa de la central
-        let chatListenerRef = null;  // Referencia para limpiar escuchas de chat
+        let driverLiveMarker = null; 
+        let chatListenerRef = null;  
 
         window.toggleSidebar = (side) => {
             const el = document.getElementById('sidebar-' + side);
@@ -191,7 +190,6 @@
             document.getElementById('km-display').innerText = unitData[name].totalKm + " km";
             document.getElementById('time-display').innerText = unitData[name].totalTime;
             
-            // Sincronizar escuchas en la nube de la nueva unidad activa
             listenToDriverLive();
             listenToChat();
 
@@ -241,7 +239,6 @@
             });
             geocoder = new google.maps.Geocoder();
 
-            // Arrancar escuchas en tiempo real por defecto
             listenToDriverLive();
             listenToChat();
         }
@@ -308,12 +305,9 @@
 
         function buildDriverURL() {
             const d = unitData[currentUnit];
-            let coordString = d.waypoints.map(w => `${w.location.lat()},${w.location.lng()}`).join('|');
-            
             let currentPath = window.location.href.split('?')[0];
             let baseDir = currentPath.substring(0, currentPath.lastIndexOf('/') + 1);
             
-            // Enlace simplificado: Pasa la clave encriptada de la unidad para jalar los datos desde la nube
             let cleanUnitName = currentUnit.replace(/ /g, "_");
             generatedLink = `${baseDir}chofer.html?unit=${encodeURIComponent(cleanUnitName)}`;
 
@@ -353,7 +347,6 @@
                     renderStopsList();
                     redrawRouteMarkers();
 
-                    // SINCRONIZACIÓN BODEGA -> CELULAR: Guarda la ruta optimizada en tu nodo de Firebase
                     let coordString = d.waypoints.map(w => `${w.location.lat()},${w.location.lng()}`).join('|');
                     let cleanUnitName = currentUnit.replace(/ /g, "_");
                     db.ref(`routes/${cleanUnitName}`).set({ stops: coordString });
@@ -363,7 +356,6 @@
             });
         };
 
-        // TELEMETRÍA DEL CAMIÓN EN VIVO DESDE LA COMPUTADORA
         function listenToDriverLive() {
             let cleanUnitName = currentUnit.replace(/ /g, "_");
             db.ref(`tracking/${cleanUnitName}`).on('value', (snapshot) => {
@@ -382,19 +374,18 @@
                     } else {
                         driverLiveMarker.setPosition(pos);
                     }
-                    map.panTo(pos); // Ajuste automático del lente de visualización de planta
+                    map.panTo(pos); 
                 }
             });
         }
 
-        // CONTROL DE MENSAJES DE INTERNET COMPARTIDOS
         function listenToChat() {
             let cleanUnitName = currentUnit.replace(/ /g, "_");
             if(chatListenerRef) db.ref(`chats/${chatListenerRef}`).off();
             chatListenerRef = cleanUnitName;
             
             const stream = document.getElementById('chat-stream');
-            stream.innerHTML = ""; // Resetear pantalla al cambiar de camión
+            stream.innerHTML = ""; 
 
             db.ref(`chats/${cleanUnitName}`).on('child_added', (snapshot) => {
                 const msg = snapshot.val();
