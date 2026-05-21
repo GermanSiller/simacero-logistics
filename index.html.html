@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simacero Logistics OS | v27.0</title>
+    
+    <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+    <style>
+        :root { --brand-blue: #0f172a; --brand-yellow: #ffcc00; }
+        body { font-family: 'Inter', sans-serif; overflow: hidden; background: #0f172a; color: white; margin: 0; }
+        #map { height: 100vh; width: 100%; position: absolute; top: 0; left: 0; z-index: 1; background: #e5e7eb; }
+        .sidebar { transition: all 0.4s ease; z-index: 50; position: relative; }
+        .panel-hidden-left { transform: translateX(-100%); margin-right: -350px; }
+        .panel-hidden-right { transform: translateX(100%); margin-left: -450px; }
+        .glass-dark { background: rgba(30, 41, 59, 0.98); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.1); }
+        .unit-card { border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.03); transition: 0.3s; cursor: pointer; }
+        .unit-card.active { border-color: var(--brand-yellow); background: rgba(255, 204, 0, 0.1); }
+        .toggle-btn { position: absolute; top: 50%; transform: translateY(-50%); z-index: 100; background: #0f172a; color: white; padding: 15px 8px; cursor: pointer; border: 1px solid #334155; }
+        .tab-btn { border-bottom: 2px solid transparent; transition: 0.3s; color: #94a3b8; font-weight: bold; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+        .tab-btn.active { border-color: var(--brand-yellow); color: var(--brand-yellow); }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .collapsible-container { transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1); height: 44px; overflow: hidden; }
+        .collapsible-container.expanded { height: auto; padding-bottom: 15px; }
+        .collapsible-body { opacity: 0; pointer-events: none; transition: 0.3s; padding-top: 10px; }
+        .collapsible-container.expanded .collapsible-body { opacity: 1; pointer-events: auto; }
+    </style>
+</head>
+<body class="flex h-screen w-screen">
+
+    <button onclick="toggleSidebar('left')" id="btn-left" class="toggle-btn rounded-r-xl" style="left: 350px;"><i class="ri-arrow-left-s-line"></i></button>
+    <button onclick="toggleSidebar('right')" id="btn-right" class="toggle-btn rounded-l-xl" style="right: 450px;"><i class="ri-arrow-right-s-line"></i></button>
+
+    <aside id="sidebar-left" class="sidebar w-[350px] glass-dark flex flex-col border-r border-slate-700">
+        <div class="p-6 border-b border-white/10 text-center">
+            <h1 class="text-2xl font-black italic tracking-tighter">
+                <span style="color: var(--brand-yellow);">SIMACERO</span> 
+                <span style="color: white; font-weight: 300; font-size: 0.8em;">LOGISTICS</span>
+            </h1>
+        </div>
+
+        <div class="p-4 flex-1 space-y-6 overflow-y-auto">
+            <div id="add-unit-widget" class="collapsible-container bg-white/5 p-3 rounded-2xl border border-white/10">
+                <div onclick="toggleCollapsible('add-unit-widget', 'unit-arrow')" class="flex justify-between items-center cursor-pointer">
+                    <h3 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Agregar Nueva Unidad</h3>
+                    <i id="unit-arrow" class="ri-add-line text-yellow-400"></i>
+                </div>
+                <div class="collapsible-body">
+                    <div class="flex gap-2 mb-2">
+                        <input type="text" id="unit-name" class="flex-1 bg-slate-800 rounded-lg px-3 py-2 text-xs outline-none" placeholder="Nombre...">
+                        <select id="unit-icon" class="bg-slate-800 rounded-lg px-2 text-xs outline-none"><option value="🚚">🚚</option><option value="🛻">🛻</option></select>
+                    </div>
+                    <button onclick="addNewUnit()" class="w-full bg-yellow-400 text-black py-2 rounded-xl text-[10px] font-bold uppercase">Registrar</button>
+                </div>
+            </div>
+
+            <div>
+                <h3 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-2 mb-3">Unidades Activas</h3>
+                <div id="units-container" class="space-y-2">
+                    <div class="unit-card p-4 rounded-2xl active" onclick="selectUnit(this, 'CAMIÓN 5 TON')">🚚 Camión 5 Toneladas</div>
+                    <div class="unit-card p-4 rounded-2xl" onclick="selectUnit(this, 'CAMIONETA 01')">🛻 Camioneta Reparto 01</div>
+                    <div class="unit-card p-4 rounded-2xl" onclick="selectUnit(this, 'CAMIONETA 02')">🛻 Camioneta Reparto 02</div>
+                </div>
+            </div>
+            
+            <div id="chat-widget" class="collapsible-container flex flex-col bg-black/40 rounded-2xl border border-white/5">
+                <div onclick="toggleCollapsible('chat-widget', 'chat-arrow')" class="p-3 text-[10px] font-bold border-b border-white/5 uppercase flex justify-between items-center cursor-pointer">
+                    <span>Mensajes: <span id="chat-label" class="text-yellow-400">---</span></span>
+                    <i id="chat-arrow" class="ri-arrow-up-s-line transition-transform"></i>
+                </div>
+                <div class="collapsible-body flex flex-col h-[230px]">
+                    <div id="chat-stream" class="flex-1 p-3 overflow-y-auto text-[10px] text-slate-500 italic text-center py-10">Sin mensajes</div>
+                    <div class="p-2 flex gap-2"><input type="text" class="flex-1 bg-slate-800 rounded-lg px-3 py-1 text-xs outline-none" placeholder="Instrucción..."><button class="bg-yellow-400 text-black p-2 rounded-lg"><i class="ri-send-plane-fill"></i></button></div>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <main class="relative flex-1">
+        <div id="map"></div>
+        <div class="absolute top-6 left-1/2 -translate-x-1/2 z-[10] glass-dark p-4 rounded-2xl shadow-2xl flex items-center gap-6 border border-white/10">
+            <div class="text-center px-4 border-r border-white/10">
+                <p class="text-[9px] text-slate-400 font-bold uppercase">Km Totales</p>
+                <p class="text-xl font-black text-white" id="km-display">0.0 km</p>
+            </div>
+            <div class="text-center px-4 border-r border-white/10">
+                <p class="text-[9px] text-slate-400 font-bold uppercase">Tiempo Est.</p>
+                <p class="text-xl font-black text-white" id="time-display">-- min</p>
+            </div>
+            <button onclick="processLogistics()" class="bg-yellow-400 text-black px-8 py-3 rounded-xl font-black text-xs uppercase tracking-tight hover:scale-105 transition-all">
+                🚀 Generar Ruta Eficiente
+            </button>
+        </div>
+    </main>
+
+    <aside id="sidebar-right" class="sidebar w-[450px] glass-dark border-l border-slate-800 flex flex-col">
+        <div class="p-6 border-b border-white/10">
+            <h2 class="text-lg font-black mb-4" id="active-unit-display">Configuración</h2>
+            <div class="flex justify-between">
+                <button onclick="switchTab('logistica')" id="tab-logistica" class="tab-btn active pb-2 flex-1 text-center">Logística</button>
+                <button onclick="switchTab('historial')" id="tab-historial" class="tab-btn pb-2 flex-1 text-center border-x border-white/5">Historial</button>
+                <button onclick="switchTab('rendimiento')" id="tab-rendimiento" class="tab-btn pb-2 flex-1 text-center">Rendimiento</button>
+            </div>
+        </div>
+        
+        <div class="p-6 flex-1 overflow-y-auto">
+            <div id="content-logistica" class="tab-content active space-y-6">
+                <div>
+                    <label class="text-[10px] font-bold text-slate-400 uppercase block mb-2">Vincular Folio ASPEL</label>
+                    <div class="flex gap-2">
+                        <input type="text" id="aspel-input" class="flex-1 bg-slate-800 border border-white/10 rounded-xl px-4 py-3 text-sm outline-none focus:border-yellow-400" placeholder="Folio...">
+                        <button onclick="addFromAspel()" class="bg-blue-600 px-5 rounded-xl"><i class="ri-add-line"></i></button>
+                    </div>
+                </div>
+                <div class="p-4 bg-white/5 rounded-2xl border border-white/5">
+                    <label class="text-[10px] font-bold text-slate-500 uppercase block mb-3">Parada Manual</label>
+                    <input type="text" id="m-name" class="w-full bg-slate-800 border border-white/10 rounded-xl px-4 py-2 text-sm mb-2" placeholder="Cliente">
+                    <input type="text" id="m-addr" class="w-full bg-slate-800 border border-white/10 rounded-xl px-4 py-2 text-sm mb-3" placeholder="Dirección">
+                    <button onclick="addManual()" class="w-full bg-slate-700 py-2 rounded-xl text-[10px] font-bold uppercase">Añadir</button>
+                </div>
+                <div id="stops-list" class="mt-4"></div>
+
+                <div id="qr-section" class="hidden mt-6 p-6 bg-white/5 rounded-3xl border-2 border-dashed border-white/10 text-center">
+                    <p class="text-xs font-bold mb-4 tracking-widest text-yellow-400">ESCANEAR PARA ENVIAR A CHOFER</p>
+                    <div id="qr-box" class="bg-white p-3 inline-block rounded-xl mb-4"></div>
+                    <button onclick="copyDriverLink()" class="w-full bg-blue-600/20 border border-blue-500/40 text-blue-400 py-2 rounded-xl text-[10px] font-bold uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-blue-600 hover:text-white transition-all">
+                        <i class="ri-share-forward-line text-xs"></i> Compartir Link de Ruta
+                    </button>
+                </div>
+            </div>
+            <div id="content-historial" class="tab-content text-center pt-10">Historial Activo</div>
+            <div id="content-rendimiento" class="tab-content text-center pt-10">94% Eficiencia</div>
+        </div>
+    </aside>
+
+    <script>
+        let unitData = {
+            'CAMIÓN 5 TON': { waypoints: [], totalKm: 0, totalTime: "--", routeResult: null, activeMarkers: [] },
+            'CAMIONETA 01': { waypoints: [], totalKm: 0, totalTime: "--", routeResult: null, activeMarkers: [] },
+            'CAMIONETA 02': { waypoints: [], totalKm: 0, totalTime: "--", routeResult: null, activeMarkers: [] }
+        };
+        let currentUnit = 'CAMIÓN 5 TON';
+        let generatedLink = ""; 
+
+        window.toggleSidebar = (side) => {
+            const el = document.getElementById('sidebar-' + side);
+            const btn = document.getElementById('btn-' + side);
+            el.classList.toggle('panel-hidden-' + side);
+            if(side === 'left') btn.style.left = el.classList.contains('panel-hidden-left') ? '0' : '350px';
+            else btn.style.right = el.classList.contains('panel-hidden-right') ? '0' : '450px';
+        };
+
+        window.toggleCollapsible = (cId, aId) => { document.getElementById(cId).classList.toggle('expanded'); };
+
+        window.selectUnit = (el, name) => {
+            document.querySelectorAll('.unit-card').forEach(c => c.classList.remove('active'));
+            el.classList.add('active');
+            clearRouteMarkers();
+            currentUnit = name;
+            document.getElementById('active-unit-display').innerText = name;
+            document.getElementById('chat-label').innerText = name;
+            renderStopsList();
+            document.getElementById('km-display').innerText = unitData[name].totalKm + " km";
+            document.getElementById('time-display').innerText = unitData[name].totalTime;
+            
+            if (unitData[name].routeResult) {
+                directionsRenderer.setDirections(unitData[name].routeResult);
+                redrawRouteMarkers();
+                buildDriverURL(); // Regenerar QR para la unidad activa
+                document.getElementById('qr-section').classList.remove('hidden');
+            } else {
+                directionsRenderer.set('directions', null);
+                map.panTo(bodegaSimacero);
+                document.getElementById('qr-section').classList.add('hidden');
+            }
+        };
+
+        window.addNewUnit = () => {
+            const name = document.getElementById('unit-name').value.toUpperCase();
+            if(!name || unitData[name]) return;
+            unitData[name] = { waypoints: [], totalKm: 0, totalTime: "--", routeResult: null, activeMarkers: [] };
+            const div = document.createElement('div');
+            div.className = "unit-card p-4 rounded-2xl";
+            div.innerHTML = document.getElementById('unit-icon').value + " " + name;
+            div.onclick = function() { selectUnit(this, name); };
+            document.getElementById('units-container').appendChild(div);
+            document.getElementById('unit-name').value = "";
+            toggleCollapsible('add-unit-widget', 'unit-arrow');
+        };
+
+        let map, directionsService, directionsRenderer, geocoder;
+        const bodegaSimacero = { lat: 25.57881, lng: -100.23874 }; 
+
+        function initMap() {
+            map = new google.maps.Map(document.getElementById("map"), {
+                zoom: 18, center: bodegaSimacero, disableDefaultUI: true
+            });
+
+            new google.maps.Marker({
+                position: bodegaSimacero, map: map,
+                icon: { path: google.maps.SymbolPath.BACKWARD_CLOSED_ARROW, fillColor: '#2563eb', fillOpacity: 1, strokeWeight: 2, strokeColor: '#ffffff', scale: 7 },
+                label: { text: "SIMA", color: "#2563eb", fontWeight: "900", fontSize: "12px", className: "marker-label" },
+                title: "SIMACERO - MATRIZ"
+            });
+
+            directionsService = new google.maps.DirectionsService();
+            directionsRenderer = new google.maps.DirectionsRenderer({ 
+                map: map, suppressMarkers: true, polylineOptions: { strokeColor: '#2563eb', strokeWeight: 5 }
+            });
+            geocoder = new google.maps.Geocoder();
+        }
+
+        window.addFromAspel = () => {
+            const val = document.getElementById('aspel-input').value;
+            const db = { 
+                "9928": { c: "Acero Mty", a: "Santa Catarina, NL", lat: 25.6745, lng: -100.4632 },
+                "9929": { c: "Ferretera Sur", a: "Santiago, NL", lat: 25.4251, lng: -100.1512 },
+                "9930": { c: "Bloquera Centro", a: "Monterrey Centro", lat: 25.6866, lng: -100.3161 }
+            };
+            if(db[val]) {
+                unitData[currentUnit].waypoints.push({ location: new google.maps.LatLng(db[val].lat, db[val].lng), stopover: true, name: db[val].c, address: db[val].a });
+                renderStopsList(); document.getElementById('aspel-input').value = "";
+            }
+        };
+
+        window.addManual = () => {
+            const name = document.getElementById('m-name').value;
+            const addr = document.getElementById('m-addr').value;
+            if(!addr) return;
+            geocoder.geocode({ address: addr }, (results, status) => {
+                if (status === "OK") {
+                    const loc = results[0].geometry.location;
+                    unitData[currentUnit].waypoints.push({ location: loc, stopover: true, name: name || "Manual", address: addr });
+                    renderStopsList();
+                    document.getElementById('m-name').value = ""; document.getElementById('m-addr').value = "";
+                }
+            });
+        };
+
+        function renderStopsList() {
+            const container = document.getElementById('stops-list'); container.innerHTML = "";
+            unitData[currentUnit].waypoints.forEach((wp, index) => {
+                const div = document.createElement('div'); div.className = "p-4 bg-white/5 border border-white/10 rounded-xl mb-3 relative";
+                div.innerHTML = `<h4 class='text-xs font-bold text-yellow-400 uppercase'>${index + 1}. ${wp.name}</h4><p class='text-[10px] text-slate-300'>${wp.address}</p><button onclick='removeStop(${index})' class='absolute right-4 top-4'>×</button>`;
+                container.appendChild(div);
+            });
+        }
+
+        window.removeStop = (i) => { unitData[currentUnit].waypoints.splice(i, 1); renderStopsList(); };
+
+        function clearRouteMarkers() {
+            if (unitData[currentUnit] && unitData[currentUnit].activeMarkers) {
+                unitData[currentUnit].activeMarkers.forEach(m => m.setMap(null));
+                unitData[currentUnit].activeMarkers = [];
+            }
+        }
+
+        function redrawRouteMarkers() {
+            const d = unitData[currentUnit];
+            if (!d.routeResult) return;
+            d.routeResult.routes[0].legs.forEach((leg, i) => {
+                if (i < d.routeResult.routes[0].legs.length - 1) {
+                    const marker = new google.maps.Marker({
+                        position: leg.end_location, map: map,
+                        icon: { path: google.maps.SymbolPath.CIRCLE, scale: 10, fillColor: "#ffcc00", fillOpacity: 1, strokeWeight: 2, strokeColor: "#ffffff" },
+                        label: { text: String(i + 1), color: "#0f172a", fontWeight: "bold", fontSize: "11px" }
+                    });
+                    d.activeMarkers.push(marker);
+                }
+            });
+        }
+
+        // Lógica Dinámica para construir el URL local o en producción
+        function buildDriverURL() {
+            const d = unitData[currentUnit];
+            let coordString = d.waypoints.map(w => `${w.location.lat()},${w.location.lng()}`).join('|');
+            
+            // Reemplaza de forma segura el index.html actual por el chofer.html manteniendo la ruta local de tu compu
+            let currentPath = window.location.href;
+            if (currentPath.includes("index.html")) {
+                generatedLink = currentPath.replace("index.html", `chofer.html?unit=${encodeURIComponent(currentUnit)}&stops=${encodeURIComponent(coordString)}`);
+            } else {
+                // Por si abres la carpeta directo sin especificar index.html
+                let base = currentPath.substring(0, currentPath.lastIndexOf('/') + 1);
+                generatedLink = `${base}chofer.html?unit=${encodeURIComponent(currentUnit)}&stops=${encodeURIComponent(coordString)}`;
+            }
+
+            // Crear el código QR en la interfaz
+            document.getElementById('qr-section').classList.remove('hidden');
+            document.getElementById('qr-box').innerHTML = "";
+            new QRCode(document.getElementById("qr-box"), { text: generatedLink, width: 130, height: 130 });
+        }
+
+window.processLogistics = () => {
+            const d = unitData[currentUnit]; if(d.waypoints.length === 0) return alert("Agrega paradas.");
+            clearRouteMarkers();
+            
+            directionsService.route({
+                origin: bodegaSimacero, destination: bodegaSimacero,
+                waypoints: d.waypoints.map(w => ({ location: w.location, stopover: true })),
+                optimizeWaypoints: true, travelMode: 'DRIVING'
+            }, (res, status) => {
+                if(status === 'OK') {
+                    const optimalOrder = res.routes[0].waypoint_order; 
+                    let reorderedWaypoints = [];
+                    optimalOrder.forEach(index => { reorderedWaypoints.push(d.waypoints[index]); });
+                    
+                    d.waypoints = reorderedWaypoints;
+                    d.routeResult = res; 
+                    directionsRenderer.setDirections(res);
+                    
+                    let dist = 0; let time = 0;
+                    res.routes[0].legs.forEach(l => { dist += l.distance.value; time += l.duration.value; });
+                    
+                    d.totalKm = (dist/1000).toFixed(1);
+                    const hours = Math.floor(time / 3600); const minutes = Math.round((time % 3600) / 60);
+                    d.totalTime = hours > 0 ? `${hours}h ${minutes}m` : `${minutes} min`;
+                    
+                    document.getElementById('km-display').innerText = d.totalKm + " km";
+                    document.getElementById('time-display').innerText = d.totalTime;
+
+                    renderStopsList();
+                    redrawRouteMarkers();
+
+                    // --- AQUÍ ESTÁ EL ARREGLO DEL QR ---
+                    // 1. Primero quitamos el 'hidden' para que el contenedor tenga tamaño real
+                    document.getElementById('qr-section').classList.remove('hidden');
+                    
+                    // 2. Construimos la URL
+                    let coordString = d.waypoints.map(w => `${w.location.lat()},${w.location.lng()}`).join('|');
+                    let currentPath = window.location.href;
+                    if (currentPath.includes("index.html")) {
+                        generatedLink = currentPath.replace("index.html", `chofer.html?unit=${encodeURIComponent(currentUnit)}&stops=${encodeURIComponent(coordString)}`);
+                    } else {
+                        let base = currentPath.substring(0, currentPath.lastIndexOf('/') + 1);
+                        generatedLink = `${base}chofer.html?unit=${encodeURIComponent(currentUnit)}&stops=${encodeURIComponent(coordString)}`;
+                    }
+                    
+                    // 3. Limpiamos y generamos el QR ya con el espacio visible
+                    document.getElementById('qr-box').innerHTML = "";
+                    new QRCode(document.getElementById("qr-box"), { text: generatedLink, width: 130, height: 130 });
+                }
+            });
+        };
+
+        window.copyDriverLink = () => {
+            navigator.clipboard.writeText(generatedLink);
+            alert("¡Link de ruta local copiado!");
+        };
+
+        window.switchTab = (n) => {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            document.getElementById('tab-'+n).classList.add('active');
+            document.getElementById('content-'+n).classList.add('active');
+        };
+    </script>
+    <script async src="https://maps.googleapis.com/maps/api/js?key=AIzaSyARlpmhw29k70jWDXb-NLnNt7wMUoIjaOM&libraries=places,geometry&callback=initMap"></script>
+</body>
+</html>
